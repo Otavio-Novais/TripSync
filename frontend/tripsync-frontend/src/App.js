@@ -23,7 +23,7 @@ import { SettingsProvider } from './contexts/SettingsContext';
 import { TripsProvider } from './contexts/TripsContext';
 
 function App() {
-  const CLIENT_ID = "274939966706-78vmihp1pqp7j82o403btjuljk2bl4bs.apps.googleusercontent.com";
+  const CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "274939966706-78vmihp1pqp7j82o403btjuljk2bl4bs.apps.googleusercontent.com";
 
   const PrivateRoute = ({ children }) => {
     const token = localStorage.getItem('token');

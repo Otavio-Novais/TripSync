@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,6 +10,9 @@ from .serializers import UserRegistrationSerializer, ChangePasswordSerializer, U
 
 from django.contrib.auth.forms import PasswordResetForm
 from django.conf import settings
+import logging
+
+logger = logging.getLogger(__name__)
 from django.contrib.auth import authenticate
 
 # --- IMPORTS NOVOS DE SEGURANÇA ---
@@ -75,98 +79,77 @@ class GoogleLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        print("=" * 50)
-        print("RECEBIDA REQUISIÇÃO DE LOGIN GOOGLE")
-        print(f"Headers: {request.headers}")
-        print(f"Data: {request.data}")
-        
         token = request.data.get("token")
 
         if not token:
-            print("ERRO: Token não fornecido")
             return Response(
                 {"error": "Token não fornecido"}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        print(f"Token recebido (primeiros 50 chars): {token[:50]}...")
-
         try:
             # 1. Validar o token direto na API do Google
-            print("Validando token com Google...")
             google_response = requests.get(
                 "https://www.googleapis.com/oauth2/v3/tokeninfo",
                 params={"id_token": token},
                 timeout=5
             )
-
-            print(f"Status da resposta do Google: {google_response.status_code}")
-
-            if not google_response.ok:
-                error_detail = google_response.json() if google_response.content else "Token inválido"
-                print(f"ERRO na validação do Google: {error_detail}")
-                return Response(
-                    {"error": f"Token do Google inválido: {error_detail}"},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            google_data = google_response.json()
-            print(f"Dados do Google: {google_data}")
-            
-            email = google_data.get("email")
-            name = google_data.get("name", "")
-
-            if not email:
-                print("ERRO: Email não encontrado no token")
-                return Response(
-                    {"error": "Email não encontrado no token do Google"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            print(f"✓ Login Google bem-sucedido para: {email}")
-
-            # 2. Verificar se o usuário existe. Se não, cria.
-            user, created = CustomUser.objects.get_or_create(
-                email=email, defaults={"full_name": name}
+        except requests.exceptions.RequestException:
+            logger.exception("Falha de rede ao validar token do Google")
+            return Response(
+                {"error": "Não foi possível validar o token com o Google."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-            if created:
-                user.set_unusable_password()
-                user.save()
-                print(f"✓ Novo usuário criado: {email}")
-            else:
-                print(f"✓ Usuário existente: {email}")
+        if not google_response.ok:
+            return Response(
+                {"error": "Token do Google inválido."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
-            # 3. Gerar tokens JWT
-            refresh = RefreshToken.for_user(user)
-            print("✓ Tokens JWT gerados com sucesso")
+        google_data = google_response.json()
 
-            response_data = {
+        # 2. O token precisa ter sido emitido para ESTE app e com email verificado.
+        if google_data.get("aud") != settings.GOOGLE_CLIENT_ID:
+            return Response(
+                {"error": "Token do Google emitido para outro aplicativo."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if str(google_data.get("email_verified")).lower() != "true":
+            return Response(
+                {"error": "Email do Google não verificado."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        email = google_data.get("email")
+        name = google_data.get("name", "")
+
+        if not email:
+            return Response(
+                {"error": "Email não encontrado no token do Google"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. Verificar se o usuário existe. Se não, cria.
+        user, created = CustomUser.objects.get_or_create(
+            email=email, defaults={"full_name": name}
+        )
+
+        if created:
+            user.set_unusable_password()
+            user.save()
+
+        # 4. Gerar tokens JWT
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
                 "refresh": str(refresh),
                 "access": str(refresh.access_token),
                 "email": user.email,
                 "full_name": user.full_name,
-            }
-            print(f"Retornando resposta: {response_data}")
-            print("=" * 50)
-
-            return Response(response_data, status=status.HTTP_200_OK)
-
-        except requests.exceptions.RequestException as e:
-            print(f"ERRO de rede ao validar token: {str(e)}")
-            print("=" * 50)
-            return Response(
-                {"error": f"Erro ao validar token com Google: {str(e)}"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        except Exception as e:
-            print(f"ERRO inesperado no login Google: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            print("=" * 50)
-            return Response(
-                {"error": f"Erro interno: {str(e)}"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 # View de Reset de Senha
@@ -181,15 +164,16 @@ class PasswordResetRequestView(APIView):
             form = PasswordResetForm(data={"email": email})
 
             if form.is_valid():
+                frontend = urlparse(settings.FRONTEND_URL)
                 opts = {
-                    "use_https": False,
+                    "use_https": frontend.scheme == "https",
                     "from_email": settings.DEFAULT_FROM_EMAIL,
                     "email_template_name": "registration/password_reset_email.html",
                     "subject_template_name": "registration/password_reset_subject.txt",
-                    "domain_override": "localhost:3000",
+                    "domain_override": frontend.netloc,
                     "extra_email_context": {
                         "site_name": "Tripsync",
-                        "protocol": "http",
+                        "protocol": frontend.scheme,
                     },
                 }
                 form.save(**opts)

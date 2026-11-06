@@ -129,51 +129,23 @@ class TripCreateView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def listar_viagens_api(request):
-    """
-    Lista todas as viagens do usuário autenticado, ordenadas por mais recentes
-    """
-    viagens = Viagem.objects.filter(
-        participantes=request.user
-    ).prefetch_related('participantes').order_by('-id')  # Ordenação explícita por ID decrescente
-    
-    viagens_data = []
-    for v in viagens:
-        # Define status_display
-        if v.data_fim and v.data_fim < timezone.now().date():
-            status = 'CONCLUIDA'
-            status_display = 'Concluída'
-        else:
-            status = 'PLANEJAMENTO'
-            status_display = 'Em Planejamento'
-        
-        viagens_data.append({
-            'id': v.id,
-            'titulo': v.titulo,
-            'nome': v.nome,
-            'destino': v.destino,
-            'data_inicio': v.data_inicio,
-            'data_fim': v.data_fim,
-            'imagem': v.imagem.url if v.imagem else None,
-            'participantes_count': v.participantes.count(),
-            'status': status,
-            'status_display': status_display,
-        })
-    
-    return Response(viagens_data)
-
 User = get_user_model()
+
+
+def _eh_participante(viagem, user):
+    """True se o usuário participa da viagem."""
+    return viagem.participantes.filter(pk=user.pk).exists()
+
+
+def _sem_permissao():
+    return Response(
+        {"error": "Você não participa desta viagem."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dashboard_api(request, viagem_id):
-    # Log para debug
-    print(f"🔍 Dashboard API chamada - Viagem ID: {viagem_id}")
-    print(f"👤 Usuário: {request.user}")
-    print(f"🔑 Auth: {request.META.get('HTTP_AUTHORIZATION', 'Nenhum header de autorização')}")
-    
     # Otimiza query com prefetch de relacionamentos
     viagem = get_object_or_404(
         Viagem.objects.prefetch_related(
@@ -184,6 +156,8 @@ def dashboard_api(request, viagem_id):
         pk=viagem_id
     )
     user = request.user
+    if not _eh_participante(viagem, user):
+        return _sem_permissao()
     
     # 1. Calcular saldos de TODOS (para o gráfico de usuários)
     participantes = list(viagem.participantes.all())  # Converte para lista
@@ -255,12 +229,14 @@ def dashboard_api(request, viagem_id):
 @permission_classes([IsAuthenticated])
 def criar_despesa_api(request, viagem_id):
     viagem = get_object_or_404(Viagem, pk=viagem_id)
+    if not _eh_participante(viagem, request.user):
+        return _sem_permissao()
     try:
         data = request.data
         status = data.get('status', 'CONFIRMADO') # Recebe o status (Rascunho ou não)
 
         with transaction.atomic():
-            pagador = get_object_or_404(User, pk=data['pagador_id'])
+            pagador = get_object_or_404(viagem.participantes, pk=data['pagador_id'])
             nova_despesa = Despesa.objects.create(
                 viagem=viagem,
                 pagador=pagador,
@@ -273,7 +249,7 @@ def criar_despesa_api(request, viagem_id):
             # Só cria rateios se não for rascunho ou se tiver dados
             rateios_data = data.get('rateios', [])
             for r in rateios_data:
-                participante = get_object_or_404(User, pk=r['user_id'])
+                participante = get_object_or_404(viagem.participantes, pk=r['user_id'])
                 Rateio.objects.create(
                     despesa=nova_despesa,
                     participante=participante,
@@ -291,7 +267,9 @@ def liquidar_divida_api(request, viagem_id):
     Registra um pagamento direto (reembolso) entre duas pessoas para quitar dívida.
     """
     viagem = get_object_or_404(Viagem, pk=viagem_id)
-    
+    if not _eh_participante(viagem, request.user):
+        return _sem_permissao()
+
     try:
         data = request.data
         devedor_id = data.get('devedor_id')  # Quem está pagando (ex: Ana)
@@ -300,8 +278,8 @@ def liquidar_divida_api(request, viagem_id):
 
         with transaction.atomic():
             # Cria uma despesa especial do tipo "ACERTO"
-            devedor = get_object_or_404(User, pk=devedor_id)
-            credor = get_object_or_404(User, pk=credor_id)
+            devedor = get_object_or_404(viagem.participantes, pk=devedor_id)
+            credor = get_object_or_404(viagem.participantes, pk=credor_id)
 
             nova_despesa = Despesa.objects.create(
                 viagem=viagem,
@@ -625,7 +603,7 @@ def enviar_convites(request, viagem_id):
         
         # Envia email (simplificado - em produção usar templates)
         try:
-            link_convite = f"https://tripsync.app/join/{convite.token}"
+            link_convite = f"{django_settings.FRONTEND_URL}/join/{convite.token}"
             send_mail(
                 subject=f"Convite para {viagem.titulo}",
                 message=f"Você foi convidado para participar da viagem {viagem.titulo}. Acesse: {link_convite}",
@@ -663,7 +641,7 @@ def reenviar_convite(request, viagem_id, convite_id):
     
     # Reenvia email
     try:
-        link_convite = f"https://tripsync.app/join/{convite.token}"
+        link_convite = f"{django_settings.FRONTEND_URL}/join/{convite.token}"
         send_mail(
             subject=f"Lembrete: Convite para {viagem.titulo}",
             message=f"Lembrete: Você foi convidado para {viagem.titulo}. Acesse: {link_convite}",
