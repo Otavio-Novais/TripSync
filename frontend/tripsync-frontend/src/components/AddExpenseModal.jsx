@@ -44,6 +44,7 @@ const AddExpenseModal = ({ viagemId, onClose, onSuccess }) => {
     useEffect(() => {
         if (!selectedTripId) return;
         setLoading(true);
+        setError(null);
         tripsApi.obterFinancas(selectedTripId)
             .then(d => {
                 const users = d.resumo.map(u => ({ id: u.id, nome: u.nome, avatar: u.nome.charAt(0) }));
@@ -54,6 +55,7 @@ const AddExpenseModal = ({ viagemId, onClose, onSuccess }) => {
             })
             .catch(err => {
                 console.error("Erro ao carregar participantes:", err);
+                setError("Não foi possível carregar os participantes da viagem.");
                 setLoading(false);
             });
     }, [selectedTripId]);

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import { Share2, Settings, MapPin } from 'lucide-react';
+import { API_BASE_URL } from '../../services/api';
 
 const DashboardHeader = () => {
   const { tripId } = useParams();
@@ -17,7 +18,7 @@ const DashboardHeader = () => {
 
   useEffect(() => {
     if (tripId) {
-      fetch(`http://127.0.0.1:8000/planner/api/viagens/${tripId}/`, {
+      fetch(`${API_BASE_URL}/planner/api/viagem/${tripId}/`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       })
         .then(res => res.json())
@@ -57,10 +58,10 @@ const DashboardHeader = () => {
             </div>
             <div>
               <h1 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#111827', margin: 0 }}>
-                {tripData.titulo}
+                {tripData.title}
               </h1>
               <div style={{ fontSize: '0.8rem', color: '#6b7280', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span>{new Date(tripData.data_inicio).toLocaleDateString()}</span>
+                <span>{new Date(tripData.start_date).toLocaleDateString()}</span>
                 <span style={{ width: 4, height: 4, background: '#d1d5db', borderRadius: '50%' }}></span>
                 <span>Planejamento</span>
               </div>

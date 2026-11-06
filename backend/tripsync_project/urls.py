@@ -20,16 +20,6 @@ from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
 
-# Imports do DRF e das suas Views (Suggestions)
-from rest_framework.routers import DefaultRouter
-from suggestions.views import TripViewSet, SuggestionViewSet, VoteViewSet
-
-# Configuração do Router (Cria links para trips, suggestions e votes)
-router = DefaultRouter()
-router.register(r'trips', TripViewSet)
-router.register(r'suggestions', SuggestionViewSet)
-router.register(r'votes', VoteViewSet)
-
 # Função API Root (Documentação simples da API)
 def api_root(request):
     return JsonResponse({
@@ -38,7 +28,6 @@ def api_root(request):
         'endpoints': {
             'auth': '/api/auth/',
             'planner': '/planner/api/',
-            'suggestions': '/api/', # Adicionado para constar na documentação
             'admin': '/admin/',
         },
         'status': 'running'
@@ -51,15 +40,10 @@ urlpatterns = [
     # Rota Admin
     path('admin/', admin.site.urls),
 
-    # Rotas de Sugestões (Gerenciadas pelo Router: /api/trips/, /api/votes/, etc.)
-    path('api/', include(router.urls)),
-
     # Rotas de Autenticação (Accounts)
     path('api/auth/', include('accounts.urls')), 
     
-    # Rotas do Planner
-    # Nota: No seu código havia duas linhas para planner. 
-    # Unifiquei para 'planner/api/' para bater com a descrição do JSON acima.
+    # Rotas do Planner (viagens, finanças, sugestões e membros)
     path('planner/api/', include('planner.urls')), 
 ]
 
