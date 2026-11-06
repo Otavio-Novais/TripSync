@@ -1,9 +1,8 @@
 name: Deploy to Heroku
 
+# Deploy manual: os apps do Heroku estão desativados no momento.
+# Para voltar ao deploy automático, adicione "push: branches: [main]" abaixo.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:

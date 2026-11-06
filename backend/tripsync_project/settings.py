@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 from decouple import config
 import dj_database_url
 import os
@@ -21,13 +22,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-r%(zi81ca)um5u*dm!d16nhb4nicb7!^!o^u*vxz@alr*7nnpu"
+# Segredos e flags de ambiente vêm de variáveis de ambiente (ou de backend/.env).
+# Veja backend/.env.example.
+DEBUG = config("DEBUG", default=False, cast=bool)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+SECRET_KEY = config("SECRET_KEY", default="")
+if not SECRET_KEY:
+    if DEBUG:
+        # Chave apenas para desenvolvimento local; nunca usada em produção.
+        SECRET_KEY = "django-insecure-dev-only-key-change-me"
+    else:
+        raise ImproperlyConfigured("Defina SECRET_KEY no ambiente (ou use DEBUG=True em dev).")
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = config(
+    "ALLOWED_HOSTS",
+    default="localhost,127.0.0.1",
+    cast=lambda v: [h.strip() for h in v.split(",") if h.strip()],
+)
 
 # Application definition
 
@@ -41,8 +52,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'planner',
-    'accounts',    # Vindo da Main
-    'suggestions', # Vindo da sua Branch
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -57,16 +67,12 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# CORS Settings - INTEGRADO (Todas as portas permitidas)
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-    "http://localhost:5173",      # Sua porta de desenvolvimento
-    "http://127.0.0.1:5173",      # Sua porta de desenvolvimento
-    "https://tripsyncheroku-frontend-320b6c6b0d9a.herokuapp.com", # Produção
-]
+# CORS: origens do frontend, separadas por vírgula.
+CORS_ALLOWED_ORIGINS = config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:3000,http://127.0.0.1:3000",
+    cast=lambda v: [o.strip() for o in v.split(",") if o.strip()],
+)
 
 # Permitir credenciais
 CORS_ALLOW_CREDENTIALS = True
@@ -155,11 +161,6 @@ else:
             'sslmode': 'require',
         }
 
-print(f"DEBUG: DB HOST: {DATABASES['default'].get('HOST')}")
-print(f"DEBUG: DB OPTIONS: {DATABASES['default'].get('OPTIONS')}")
-
-# Password validation
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -211,6 +212,32 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "noreply@tripsync.com"
+# Client ID do Google OAuth (o mesmo usado no frontend). Não é segredo.
+GOOGLE_CLIENT_ID = config(
+    "GOOGLE_CLIENT_ID",
+    default="274939966706-78vmihp1pqp7j82o403btjuljk2bl4bs.apps.googleusercontent.com",
+)
+
+# URL pública do frontend, usada nos links enviados por email.
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000").rstrip("/")
+
+# Email: por padrão imprime no console. Em produção, configure SMTP pelo ambiente.
+EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = config("EMAIL_HOST", default="")
+EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@tripsync.com")
 AUTH_USER_MODEL = "accounts.CustomUser"
+
+# Endurecimento básico fora do modo de desenvolvimento.
+CSRF_TRUSTED_ORIGINS = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="",
+    cast=lambda v: [o.strip() for o in v.split(",") if o.strip()],
+)
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
